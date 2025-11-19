@@ -1,14 +1,19 @@
 # Audio to MIDI Converter
 
-A Python script that detects notes in audio files and converts them to MIDI format. Supports WAV, MP3, FLAC, OGG, and M4A audio formats.
+A Python script that detects notes in audio files and converts them to MIDI format. Supports both **melodic instruments** (piano, guitar, vocals) and **drums/percussion**. Handles WAV, MP3, FLAC, OGG, and M4A audio formats.
 
 ## Features
 
+- **Dual mode operation**:
+  - **Melodic mode**: Pitch detection for singing, instruments, bass lines
+  - **Drum mode**: Onset detection and drum type classification
 - **Multi-format support**: Handles WAV, MP3, FLAC, OGG, and M4A files
 - **Intelligent pitch detection**: Uses the pYIN algorithm for accurate note detection
+- **Drum classification**: Automatically identifies kicks, snares, hi-hats, toms, and cymbals
 - **Configurable parameters**: Adjust sensitivity, note duration, tempo, and more
 - **MIDI instrument selection**: Choose from 128 General MIDI instruments
 - **Easy-to-use CLI**: Simple command-line interface with sensible defaults
+- **Debug mode**: Detailed analysis of detection process
 
 ## Installation
 
@@ -45,7 +50,38 @@ Specify output filename:
 python audio_to_midi.py input.mp3 -o output.mid
 ```
 
-### Advanced Usage
+### Drum Mode
+
+Convert drum/percussion audio to MIDI:
+
+```bash
+python audio_to_midi.py drums.wav --drums
+```
+
+With debug to see drum classification:
+
+```bash
+python audio_to_midi.py drums.wav --drums --debug
+```
+
+Adjust sensitivity (minimum time between hits):
+
+```bash
+python audio_to_midi.py drums.wav --drums --min-onset-gap 0.02
+```
+
+**Detected drum types** (automatically classified):
+- Kick (Bass Drum) → MIDI note 36
+- Snare → MIDI note 38
+- Closed Hi-Hat → MIDI note 42
+- Open Hi-Hat → MIDI note 46
+- Low/Mid/High Tom → MIDI notes 45, 47, 50
+- Crash Cymbal → MIDI note 49
+- Ride Cymbal → MIDI note 51
+
+**Note**: Drum mode uses onset detection and spectral analysis to classify drum types. Works best with isolated drum tracks or simple drum patterns.
+
+### Advanced Usage (Melodic Mode)
 
 Enable verbose output for detailed information:
 
@@ -110,6 +146,8 @@ optional arguments:
   -i, --instrument INST MIDI instrument number 0-127 (default: 0 = Piano)
   -v, --verbose         Print detailed information during conversion
   -d, --debug           Print debugging information (pitch detection analysis)
+  --drums               Drum mode: detect and classify drum hits instead of pitched notes
+  --min-onset-gap GAP   Minimum time between drum hits in seconds (drums mode only, default: 0.03)
 ```
 
 ### MIDI Instruments
@@ -153,12 +191,19 @@ This tool works best with **monophonic** audio (single notes at a time):
 
 ### Limitations
 
+**Melodic Mode:**
 - **Polyphonic audio** (multiple simultaneous notes) will have mixed results
-- **Percussion and drums** are not suitable for pitch detection
 - **Background noise** can affect accuracy
 - **Vibrato and pitch bends** may cause note fragmentation
 
+**Drum Mode:**
+- Works best with **isolated drum tracks** or simple patterns
+- Complex polyphonic drum patterns may be misclassified
+- Classification accuracy depends on recording quality and drum sound
+
 ## Examples
+
+### Melodic Examples
 
 Convert a piano recording:
 
@@ -178,6 +223,28 @@ Convert a bass line:
 python audio_to_midi.py bass.wav --hop-length 2048 --min-duration 0.15 --instrument 32 -o bass_midi.mid
 ```
 
+### Drum Examples
+
+Convert drum track with debug info:
+
+```bash
+python audio_to_midi.py drums.wav --drums --debug -v
+```
+
+Convert drum loop at 126 BPM:
+
+```bash
+python audio_to_midi.py drum_loop.wav --drums -t 126 -o drum_loop.mid
+```
+
+Adjust for fast hi-hat patterns:
+
+```bash
+python audio_to_midi.py drums.wav --drums --min-onset-gap 0.02
+```
+
+### General
+
 Debug mode to troubleshoot detection issues:
 
 ```bash
@@ -193,7 +260,8 @@ w2m/
 ├── README.md             # This file
 └── src/
     ├── audio_loader.py   # Audio file loading
-    ├── pitch_detector.py # Pitch and note detection
+    ├── pitch_detector.py # Pitch and note detection (melodic mode)
+    ├── drum_detector.py  # Drum onset detection and classification (drum mode)
     └── midi_generator.py # MIDI file generation
 ```
 
@@ -235,7 +303,19 @@ Install ffmpeg (see Installation section)
 
 ## Technical Details
 
+### Melodic Mode
 - **Pitch Detection**: pYIN (probabilistic YIN) algorithm via librosa
+- **Note Extraction**: Continuous pitch tracking with voicing probability filtering
+- **MIDI Channel**: 0-15 (configurable instrument)
+
+### Drum Mode
+- **Onset Detection**: Spectral flux-based onset detection via librosa
+- **Feature Extraction**: Spectral centroid, rolloff, zero-crossing rate, RMS energy, low-frequency ratio
+- **Classification**: Rule-based classifier using spectral features
+- **MIDI Channel**: 9 (Channel 10 - General MIDI Percussion)
+- **Detected Drums**: Kick, snare, closed/open hi-hat, toms, crash, ride
+
+### General
 - **Sample Rate**: Default 22050 Hz (configurable)
 - **Hop Length**: Default 512 samples (~23ms at 22050 Hz)
 - **MIDI Format**: Standard MIDI File format (.mid)

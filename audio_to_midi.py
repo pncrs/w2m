@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent / 'src'))
 from audio_loader import AudioLoader
 from pitch_detector import PitchDetector
 from midi_generator import MidiGenerator
+from drum_detector import DrumDetector
 
 
 def convert_audio_to_midi(
@@ -130,6 +131,112 @@ def convert_audio_to_midi(
     return str(output_path)
 
 
+def convert_drums_to_midi(
+    input_file,
+    output_file=None,
+    sample_rate=22050,
+    hop_length=512,
+    min_onset_gap=0.03,
+    tempo=120,
+    verbose=False,
+    debug=False
+):
+    """
+    Convert drum audio to MIDI.
+
+    Args:
+        input_file (str): Path to input audio file
+        output_file (str): Path to output MIDI file (optional)
+        sample_rate (int): Sample rate for audio processing
+        hop_length (int): Hop length for onset detection
+        min_onset_gap (float): Minimum time between drum hits in seconds
+        tempo (int): MIDI tempo in BPM
+        verbose (bool): Print detailed information
+        debug (bool): Print debugging information
+
+    Returns:
+        str: Path to the created MIDI file
+    """
+    input_path = Path(input_file)
+
+    # Generate output filename if not provided
+    if output_file is None:
+        output_file = input_path.with_suffix('.mid')
+    else:
+        output_file = Path(output_file)
+
+    if verbose:
+        print(f"Input file: {input_path}")
+        print(f"Output file: {output_file}")
+        print(f"Sample rate: {sample_rate} Hz")
+        print(f"Minimum onset gap: {min_onset_gap} seconds")
+        print(f"Tempo: {tempo} BPM")
+        print(f"Mode: DRUM DETECTION")
+        print()
+
+    # Step 1: Load audio
+    if verbose:
+        print("Loading audio file...")
+    loader = AudioLoader(sample_rate=sample_rate)
+    try:
+        audio_data, sr = loader.load(input_file)
+        duration = loader.get_duration(audio_data, sr)
+        if verbose:
+            print(f"Audio loaded successfully (duration: {duration:.2f} seconds)")
+            print()
+    except Exception as e:
+        print(f"Error loading audio: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Step 2: Detect and classify drum hits
+    if verbose:
+        print("Detecting drum hits...")
+    detector = DrumDetector(
+        sample_rate=sr,
+        hop_length=hop_length
+    )
+    try:
+        drum_hits = detector.detect_drums(
+            audio_data,
+            min_onset_gap=min_onset_gap,
+            debug=debug
+        )
+        if verbose and not debug:  # debug mode already prints detailed info
+            print(f"Detected {len(drum_hits)} drum hits")
+            if drum_hits:
+                print(f"First hit at {drum_hits[0]['time']:.2f} seconds")
+                print(f"Last hit at {drum_hits[-1]['time']:.2f} seconds")
+            print()
+    except Exception as e:
+        print(f"Error detecting drums: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+    if not drum_hits:
+        print("\nNo drum hits detected in the audio file!", file=sys.stderr)
+        print("\nTry adjusting:", file=sys.stderr)
+        print(f"  - Lower --min-onset-gap (currently {min_onset_gap}s)", file=sys.stderr)
+        print(f"  - Check if the audio actually contains drums", file=sys.stderr)
+        print(f"\nRun with --debug flag to see detailed analysis", file=sys.stderr)
+        sys.exit(1)
+
+    # Step 3: Generate MIDI file
+    if verbose:
+        print("Generating MIDI file...")
+    generator = MidiGenerator(tempo=tempo, velocity=64)
+    try:
+        output_path = generator.create_drum_midi(drum_hits, output_file)
+        if verbose:
+            print(f"MIDI file created successfully: {output_path}")
+            print(f"Channel: 10 (General MIDI Drums)")
+    except Exception as e:
+        print(f"Error generating MIDI: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    return str(output_path)
+
+
 def main():
     """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(
@@ -137,10 +244,15 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Melodic/pitched instruments:
   %(prog)s input.wav
   %(prog)s input.mp3 -o output.mid
   %(prog)s input.wav --tempo 140 --instrument 24
   %(prog)s input.wav --min-duration 0.05 --voiced-threshold 0.3 -v
+
+  # Drums/percussion:
+  %(prog)s drums.wav --drums
+  %(prog)s drums.wav --drums --debug -v
 
 Instrument numbers (General MIDI):
   0  = Acoustic Grand Piano (default)
@@ -224,6 +336,19 @@ Instrument numbers (General MIDI):
         help='Print debugging information (pitch detection analysis)'
     )
 
+    parser.add_argument(
+        '--drums',
+        action='store_true',
+        help='Drum mode: detect and classify drum hits instead of pitched notes'
+    )
+
+    parser.add_argument(
+        '--min-onset-gap',
+        type=float,
+        default=0.03,
+        help='Minimum time between drum hits in seconds (drums mode only, default: 0.03)'
+    )
+
     args = parser.parse_args()
 
     # Validate arguments
@@ -245,19 +370,33 @@ Instrument numbers (General MIDI):
 
     # Convert audio to MIDI
     try:
-        output_path = convert_audio_to_midi(
-            input_file=args.input_file,
-            output_file=args.output_file,
-            sample_rate=args.sample_rate,
-            hop_length=args.hop_length,
-            min_note_duration=args.min_duration,
-            voiced_threshold=args.voiced_threshold,
-            tempo=args.tempo,
-            velocity=args.velocity,
-            instrument=args.instrument,
-            verbose=args.verbose,
-            debug=args.debug
-        )
+        if args.drums:
+            # Drum mode
+            output_path = convert_drums_to_midi(
+                input_file=args.input_file,
+                output_file=args.output_file,
+                sample_rate=args.sample_rate,
+                hop_length=args.hop_length,
+                min_onset_gap=args.min_onset_gap,
+                tempo=args.tempo,
+                verbose=args.verbose,
+                debug=args.debug
+            )
+        else:
+            # Melodic/pitch mode
+            output_path = convert_audio_to_midi(
+                input_file=args.input_file,
+                output_file=args.output_file,
+                sample_rate=args.sample_rate,
+                hop_length=args.hop_length,
+                min_note_duration=args.min_duration,
+                voiced_threshold=args.voiced_threshold,
+                tempo=args.tempo,
+                velocity=args.velocity,
+                instrument=args.instrument,
+                verbose=args.verbose,
+                debug=args.debug
+            )
         if not args.verbose:
             print(f"MIDI file created: {output_path}")
     except KeyboardInterrupt:

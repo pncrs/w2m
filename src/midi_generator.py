@@ -111,6 +111,106 @@ class MidiGenerator:
 
         return str(output_path)
 
+    def create_drum_midi(self, drum_hits, output_path):
+        """
+        Create a MIDI file from a list of drum hits.
+
+        Args:
+            drum_hits (list): List of drum hit dictionaries with:
+                - time: Hit time in seconds
+                - midi_note: MIDI note number for drum
+                - velocity: Velocity (0-127)
+            output_path (str): Path to save the MIDI file
+
+        Returns:
+            str: Path to the created MIDI file
+        """
+        # Create a new MIDI file
+        midi_file = mido.MidiFile()
+        track = mido.MidiTrack()
+        midi_file.tracks.append(track)
+
+        # Set tempo
+        microseconds_per_beat = mido.bpm2tempo(self.tempo)
+        track.append(mido.MetaMessage('set_tempo', tempo=microseconds_per_beat))
+
+        # Drums use channel 9 (0-indexed) aka channel 10 in General MIDI
+        drum_channel = 9
+
+        # Sort drum hits by time
+        sorted_hits = sorted(drum_hits, key=lambda x: x['time'])
+
+        # Convert drum hits to MIDI messages
+        # Drums are typically very short notes (50ms)
+        note_duration = 0.05  # 50ms
+
+        events = []
+        for hit in sorted_hits:
+            # Ensure MIDI note is in valid range
+            midi_note = int(hit['midi_note'])
+            if not 0 <= midi_note <= 127:
+                continue  # Skip invalid notes
+
+            velocity = int(hit.get('velocity', self.velocity))
+            velocity = max(1, min(127, velocity))  # Clamp to valid range
+
+            start_time = hit['time']
+            end_time = start_time + note_duration
+
+            # Add note on event
+            events.append({
+                'time': start_time,
+                'type': 'note_on',
+                'note': midi_note,
+                'velocity': velocity,
+                'channel': drum_channel
+            })
+
+            # Add note off event
+            events.append({
+                'time': end_time,
+                'type': 'note_off',
+                'note': midi_note,
+                'velocity': 0,
+                'channel': drum_channel
+            })
+
+        # Sort events by time
+        events.sort(key=lambda x: x['time'])
+
+        # Convert events to MIDI messages with delta times
+        current_time = 0.0
+        for event in events:
+            # Calculate delta time in ticks
+            delta_time = event['time'] - current_time
+            delta_ticks = int(mido.second2tick(delta_time, midi_file.ticks_per_beat, microseconds_per_beat))
+
+            if event['type'] == 'note_on':
+                track.append(mido.Message(
+                    'note_on',
+                    channel=event['channel'],
+                    note=event['note'],
+                    velocity=event['velocity'],
+                    time=delta_ticks
+                ))
+            else:  # note_off
+                track.append(mido.Message(
+                    'note_off',
+                    channel=event['channel'],
+                    note=event['note'],
+                    velocity=event['velocity'],
+                    time=delta_ticks
+                ))
+
+            current_time = event['time']
+
+        # Save the MIDI file
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        midi_file.save(str(output_path))
+
+        return str(output_path)
+
     def get_instrument_name(self, program_number):
         """
         Get the name of a MIDI instrument by program number.
