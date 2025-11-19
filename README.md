@@ -53,6 +53,19 @@ Enable verbose output for detailed information:
 python audio_to_midi.py input.wav -v
 ```
 
+**Debug mode** - See exactly what's being detected at each stage:
+
+```bash
+python audio_to_midi.py input.wav --debug
+```
+
+This will show:
+- How many frames were analyzed
+- Pitch detection statistics
+- Frequency and MIDI note ranges detected
+- Note duration statistics
+- Helpful suggestions for parameter tuning
+
 Adjust sensitivity for better note detection:
 
 ```bash
@@ -61,6 +74,13 @@ python audio_to_midi.py input.wav --voiced-threshold 0.3 --min-duration 0.05
 
 # Higher threshold for less noise
 python audio_to_midi.py input.wav --voiced-threshold 0.7 --min-duration 0.2
+```
+
+**For bass instruments** (bass guitar, cello, tuba, etc.):
+
+```bash
+# Bass needs longer hop length and lower min-duration
+python audio_to_midi.py bass.wav --hop-length 2048 --min-duration 0.15 --instrument 32
 ```
 
 Set tempo and instrument:
@@ -89,6 +109,7 @@ optional arguments:
   --velocity VELOCITY   Note velocity 0-127 (default: 64)
   -i, --instrument INST MIDI instrument number 0-127 (default: 0 = Piano)
   -v, --verbose         Print detailed information during conversion
+  -d, --debug           Print debugging information (pitch detection analysis)
 ```
 
 ### MIDI Instruments
@@ -154,7 +175,13 @@ python audio_to_midi.py vocals.mp3 --voiced-threshold 0.4 --min-duration 0.08 --
 Convert a bass line:
 
 ```bash
-python audio_to_midi.py bass.wav --hop-length 2048 --instrument 32 -o bass_midi.mid
+python audio_to_midi.py bass.wav --hop-length 2048 --min-duration 0.15 --instrument 32 -o bass_midi.mid
+```
+
+Debug mode to troubleshoot detection issues:
+
+```bash
+python audio_to_midi.py problem.wav --debug
 ```
 
 ## Project Structure
@@ -174,10 +201,27 @@ w2m/
 
 ### No notes detected
 
-Try adjusting the parameters:
-- Lower `--voiced-threshold` (e.g., 0.3)
-- Lower `--min-duration` (e.g., 0.05)
-- Check if the audio is monophonic
+**First, run with --debug flag to see what's happening:**
+
+```bash
+python audio_to_midi.py your-file.wav --debug
+```
+
+The debug output will tell you exactly why notes aren't being detected and suggest parameter adjustments.
+
+**Common issues:**
+
+1. **Min-duration too high** - Most musical notes are 0.1-0.5 seconds. If you set `--min-duration 2.0`, you'll only capture notes longer than 2 seconds!
+   - Solution: Try `--min-duration 0.05` to `0.15`
+
+2. **Voiced threshold too high** - Default is 0.5, which might miss quieter or less confident pitches
+   - Solution: Try `--voiced-threshold 0.3` to `0.4`
+
+3. **Bass instruments need special settings** - Low frequencies need longer analysis windows
+   - Solution: Add `--hop-length 2048` for bass, cello, tuba, etc.
+
+4. **Polyphonic audio** - Multiple notes playing at once don't work well
+   - Solution: Extract individual instrument tracks first
 
 ### Too many spurious notes
 

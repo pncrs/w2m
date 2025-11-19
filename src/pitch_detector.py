@@ -104,7 +104,7 @@ class PitchDetector:
             hop_length=self.hop_length
         )
 
-    def extract_notes(self, audio_data, min_note_duration=0.1, voiced_threshold=0.5):
+    def extract_notes(self, audio_data, min_note_duration=0.1, voiced_threshold=0.5, debug=False):
         """
         Extract notes from audio data with onset detection and pitch tracking.
 
@@ -112,6 +112,7 @@ class PitchDetector:
             audio_data (np.ndarray): Audio time series
             min_note_duration (float): Minimum duration for a note in seconds
             voiced_threshold (float): Minimum voicing probability (0-1)
+            debug (bool): Print debug information
 
         Returns:
             list: List of dictionaries with note information:
@@ -132,8 +133,36 @@ class PitchDetector:
             (voiced_probs >= voiced_threshold)
         )
 
+        if debug:
+            total_frames = len(midi_notes)
+            valid_frames = np.sum(valid_mask)
+            nan_frames = np.sum(np.isnan(midi_notes))
+            low_prob_frames = np.sum(voiced_probs < voiced_threshold)
+
+            print(f"\n=== Pitch Detection Debug Info ===")
+            print(f"Total frames analyzed: {total_frames}")
+            print(f"Frames with valid pitches (not NaN): {total_frames - nan_frames} ({100*(total_frames-nan_frames)/total_frames:.1f}%)")
+            print(f"Frames with voiced_prob >= {voiced_threshold}: {total_frames - low_prob_frames} ({100*(total_frames-low_prob_frames)/total_frames:.1f}%)")
+            print(f"Frames passing all filters: {valid_frames} ({100*valid_frames/total_frames:.1f}%)")
+
+            if valid_frames > 0:
+                valid_freqs = f0[valid_mask]
+                valid_midi = midi_notes[valid_mask]
+                valid_probs = voiced_probs[valid_mask]
+
+                print(f"\nDetected frequency range: {np.min(valid_freqs):.1f} - {np.max(valid_freqs):.1f} Hz")
+                print(f"MIDI note range: {int(np.min(valid_midi))} - {int(np.max(valid_midi))} "
+                      f"({librosa.midi_to_note(int(np.min(valid_midi)))} - {librosa.midi_to_note(int(np.max(valid_midi)))})")
+                print(f"Voicing probability range: {np.min(valid_probs):.3f} - {np.max(valid_probs):.3f}")
+            else:
+                print("\nNo frames passed the filters!")
+                print(f"Suggestion: Try lowering --voiced-threshold below {voiced_threshold}")
+                if nan_frames == total_frames:
+                    print(f"Suggestion: No pitches detected at all. Check frequency range (fmin={self.fmin:.1f}, fmax={self.fmax:.1f} Hz)")
+
         # Extract note segments
         notes = []
+        notes_before_duration_filter = []
         current_note = None
         current_start = None
 
@@ -150,6 +179,7 @@ class PitchDetector:
                 elif note != current_note:
                     # Note changed, save previous note
                     duration = time - current_start
+                    notes_before_duration_filter.append(duration)
                     if duration >= min_note_duration:
                         notes.append({
                             'midi_note': current_note,
@@ -164,6 +194,7 @@ class PitchDetector:
                 # No valid note, save previous if exists
                 if current_note is not None:
                     duration = time - current_start
+                    notes_before_duration_filter.append(duration)
                     if duration >= min_note_duration:
                         notes.append({
                             'midi_note': current_note,
@@ -178,6 +209,7 @@ class PitchDetector:
         if current_note is not None:
             time = self.frames_to_time(np.array([len(midi_notes) - 1]))[0]
             duration = time - current_start
+            notes_before_duration_filter.append(duration)
             if duration >= min_note_duration:
                 notes.append({
                     'midi_note': current_note,
@@ -185,5 +217,22 @@ class PitchDetector:
                     'end_time': time,
                     'duration': duration
                 })
+
+        if debug and notes_before_duration_filter:
+            print(f"\n=== Note Segmentation Debug Info ===")
+            print(f"Note segments detected: {len(notes_before_duration_filter)}")
+            print(f"Note segments after duration filter (>= {min_note_duration}s): {len(notes)}")
+            print(f"Filtered out: {len(notes_before_duration_filter) - len(notes)} notes")
+
+            if notes_before_duration_filter:
+                durations = np.array(notes_before_duration_filter)
+                print(f"\nDuration statistics (all detected segments):")
+                print(f"  Min: {np.min(durations):.3f}s")
+                print(f"  Max: {np.max(durations):.3f}s")
+                print(f"  Mean: {np.mean(durations):.3f}s")
+                print(f"  Median: {np.median(durations):.3f}s")
+
+                if len(notes) == 0:
+                    print(f"\nSuggestion: All notes were too short! Try --min-duration {np.max(durations)/2:.3f} or lower")
 
         return notes

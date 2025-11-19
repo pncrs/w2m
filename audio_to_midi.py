@@ -26,7 +26,8 @@ def convert_audio_to_midi(
     tempo=120,
     velocity=64,
     instrument=0,
-    verbose=False
+    verbose=False,
+    debug=False
 ):
     """
     Convert an audio file to MIDI.
@@ -42,6 +43,7 @@ def convert_audio_to_midi(
         velocity (int): Note velocity (0-127)
         instrument (int): MIDI instrument number (0-127)
         verbose (bool): Print detailed information
+        debug (bool): Print debugging information
 
     Returns:
         str: Path to the created MIDI file
@@ -88,9 +90,10 @@ def convert_audio_to_midi(
         notes = detector.extract_notes(
             audio_data,
             min_note_duration=min_note_duration,
-            voiced_threshold=voiced_threshold
+            voiced_threshold=voiced_threshold,
+            debug=debug
         )
-        if verbose:
+        if verbose and not debug:  # debug mode already prints detailed info
             print(f"Detected {len(notes)} notes")
             if notes:
                 print(f"First note starts at {notes[0]['start_time']:.2f} seconds")
@@ -101,8 +104,13 @@ def convert_audio_to_midi(
         sys.exit(1)
 
     if not notes:
-        print("Warning: No notes detected in the audio file.", file=sys.stderr)
-        print("Try adjusting parameters like --min-duration or --voiced-threshold", file=sys.stderr)
+        if not debug:  # If not in debug mode, give simpler error message
+            print("\nNo notes detected in the audio file!", file=sys.stderr)
+            print("\nCommon issues and solutions:", file=sys.stderr)
+            print(f"  1. Notes too short: Your --min-duration is {min_note_duration}s. Try a lower value like 0.05 or 0.1", file=sys.stderr)
+            print(f"  2. Low confidence: Your --voiced-threshold is {voiced_threshold}. Try 0.3 for more sensitivity", file=sys.stderr)
+            print(f"  3. For bass/low instruments: Add --hop-length 2048 for better low frequency detection", file=sys.stderr)
+            print(f"\nRun with --debug flag to see detailed analysis", file=sys.stderr)
         sys.exit(1)
 
     # Step 3: Generate MIDI file
@@ -210,6 +218,12 @@ Instrument numbers (General MIDI):
         help='Print detailed information during conversion'
     )
 
+    parser.add_argument(
+        '-d', '--debug',
+        action='store_true',
+        help='Print debugging information (pitch detection analysis)'
+    )
+
     args = parser.parse_args()
 
     # Validate arguments
@@ -241,7 +255,8 @@ Instrument numbers (General MIDI):
             tempo=args.tempo,
             velocity=args.velocity,
             instrument=args.instrument,
-            verbose=args.verbose
+            verbose=args.verbose,
+            debug=args.debug
         )
         if not args.verbose:
             print(f"MIDI file created: {output_path}")
